@@ -24,6 +24,8 @@
  */
 
 #include <gkrellm2/gkrellm.h>
+#include <netdb.h>
+#include <arpa/inet.h>
 
 /*
  * Make sure we have a compatible version of GKrellM
@@ -70,6 +72,7 @@ typedef struct
   /* Each domain has its own Panel & Decal */
   GkrellmPanel *panel; 
   GkrellmDecal *decal;
+  GkrellmDecal *led_decal;
 } GDomain;
 
 /*
@@ -102,7 +105,32 @@ static gint selectedRow;
  */ 
 static void buttonPress (GkrellmDecalbutton *button)
 {
+    GDomain *domain;
+    GList     *list;
+    struct hostent *hstnm;
+    struct in_addr **addr_list;
+    int i;
+
     //TODO: Check domains  
+    printf("ButtonPress\n");
+    
+    /* 
+    * O.K. This isn't particularly efficient, but in the interests of 
+    * maintainability, I'm going to keep this in.
+    */ 
+    for (list = domainList; list; list = list->next)
+    {
+        domain = (GDomain *) list->data;
+        hstnm = gethostbyname(domain->domain);
+        if (hstnm) {
+            addr_list = (struct in_addr **) hstnm->h_addr_list;
+            for(i=0; addr_list[i] != NULL; i++) {
+                printf("Name: %s, %s\n", hstnm->h_name, inet_ntoa(*addr_list[i]));
+            }
+        } else {
+            printf("Failed to get ip address for : %s\n", domain->domain);
+        }
+    }    
 }
 
 static gint panel_expose_event (GtkWidget *widget, GdkEventExpose *ev)
@@ -195,6 +223,8 @@ static void apply_plugin_config ()
   GkrellmStyle     *style;
   GkrellmTextstyle *ts;
   GkrellmTextstyle *ts_alt;
+  GkrellmMargin *m;
+  
 
   if (listModified)
   {
@@ -255,6 +285,7 @@ static void apply_plugin_config ()
     style = gkrellm_meter_style (style_id);
     ts = gkrellm_meter_textstyle (style_id);
     ts_alt = gkrellm_meter_alt_textstyle (style_id);
+    m = gkrellm_get_style_margins(style);
      
     for (i = 0, list = domainList; list; i += 1, list = list->next)
     {
@@ -262,6 +293,12 @@ static void apply_plugin_config ()
       domain->panel = gkrellm_panel_new0();
       domain->decal = gkrellm_create_decal_text (domain->panel,
                             domain->domain, ts_alt, style, -1, -1, -1);
+                            
+      domain->led_decal = gkrellm_create_decal_pixmap(domain->panel,
+			gkrellm_decal_misc_pixmap(), gkrellm_decal_misc_mask(),
+			N_MISC_DECALS, style, -1, -1);
+	  domain->led_decal->x =
+				gkrellm_chart_width() - domain->led_decal->w - m->right;
                             
       /*
        * Configure the panel to the created decal, and create it.
@@ -274,10 +311,12 @@ static void apply_plugin_config ()
        */
       gkrellm_draw_decal_text (domain->panel, domain->decal,
                                domain->domain, 1);
-                               
-      gkrellm_put_decal_in_meter_button (domain->panel, domain->decal,
-                                         buttonPress,
-                                         GINT_TO_POINTER (i), NULL);
+
+
+	  gkrellm_make_decal_button(domain->panel, domain->led_decal,
+			buttonPress, domain, D_MISC_LED1, -1);
+                                 
+   
       /*
        * Connect our panel to the expose event to allow it to be drawn in 
        * update_plugin().
@@ -675,6 +714,7 @@ static void create_plugin (GtkWidget *vbox, gint first_create)
   GkrellmStyle     *style;
   GkrellmTextstyle *ts;
   GkrellmTextstyle *ts_alt;
+  GkrellmMargin     *m;
 
   domainVbox = vbox;
 
@@ -698,6 +738,7 @@ static void create_plugin (GtkWidget *vbox, gint first_create)
    */
   ts = gkrellm_meter_textstyle (style_id);
   ts_alt = gkrellm_meter_alt_textstyle (style_id);
+  m = gkrellm_get_style_margins(style);
 
   /* 
    * Create a text decal that will be converted to a button.  
@@ -708,6 +749,12 @@ static void create_plugin (GtkWidget *vbox, gint first_create)
     domain = (GDomain *) list->data;
     domain->decal = gkrellm_create_decal_text (domain->panel,
                             domain->domain, ts_alt, style, -1, -1, -1);
+                            
+    domain->led_decal = gkrellm_create_decal_pixmap(domain->panel,
+        gkrellm_decal_misc_pixmap(), gkrellm_decal_misc_mask(),
+        N_MISC_DECALS, style, -1, -1);
+    domain->led_decal->x =
+        gkrellm_chart_width() - domain->led_decal->w - m->right;
   /*
    * Configure the panel to created decal, and create it.
    */
@@ -721,9 +768,9 @@ static void create_plugin (GtkWidget *vbox, gint first_create)
    */
     gkrellm_draw_decal_text (domain->panel, domain->decal, 
                               domain->domain,1);
-    gkrellm_put_decal_in_meter_button (domain->panel, domain->decal, 
-                                       buttonPress, 
-                                       GINT_TO_POINTER (i), NULL);
+    gkrellm_make_decal_button(domain->panel, domain->led_decal,
+			buttonPress, domain, D_MISC_LED1, -1);                              
+                              
   }                                            
 
   /* 
