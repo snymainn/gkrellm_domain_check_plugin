@@ -26,6 +26,11 @@
 #include <gkrellm2/gkrellm.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <stdio.h>
 
 /*
  * Make sure we have a compatible version of GKrellM
@@ -100,36 +105,73 @@ static GtkWidget *domainCList;
  */
 static gint selectedRow;
 
-/* 
- * Handle decal button presses
- */ 
-static void buttonPress (GkrellmDecalbutton *button)
+int updateStatus(GkrellmDecalbutton *button, GDomain *domain)
 {
-    GDomain *domain;
-    GList     *list;
     struct hostent *hstnm;
     struct in_addr **addr_list;
     int i;
+    FILE *fp;
+    char del1[256], del2[256], del3[256], del4[256], del5[256], del6[256];
+    char externalip[256];
+    char *domainip;
+    struct stat sb;
+    unsigned long nowtime = time(NULL);
+    int ok = 1;
+    int result = 0;
 
     //TODO: Check domains  
     printf("ButtonPress\n");
-    
-    /* 
-    * O.K. This isn't particularly efficient, but in the interests of 
-    * maintainability, I'm going to keep this in.
-    */ 
-    for (list = domainList; list; list = list->next)
-    {
-        domain = (GDomain *) list->data;
-        hstnm = gethostbyname(domain->domain);
-        if (hstnm) {
-            addr_list = (struct in_addr **) hstnm->h_addr_list;
-            for(i=0; addr_list[i] != NULL; i++) {
-                printf("Name: %s, %s\n", hstnm->h_name, inet_ntoa(*addr_list[i]));
-            }
+    hstnm = gethostbyname(domain->domain);
+    if (hstnm) {
+        if (stat("/tmp/jaass", &sb) == -1) {
+            ok = 0;
         } else {
-            printf("Failed to get ip address for : %s\n", domain->domain);
+            printf("Jaass time %lld %ld \n", (long long)sb.st_mtime, (unsigned long) nowtime);
+            //If file newer than one hour, it is no point checkin again
+            if ((nowtime-sb.st_mtime) > (60*60)) {
+                i = system("wget http://checkip.dyndns.org/ -O /tmp/jaass");
+                if (i!=0) {
+                    printf("Failed to run command wget http://checkip.dyndns.org/ -O /tmp/jaass");
+                    ok = 0;
+                }
+            } else {
+                printf("Jaass newer than one hour : %lu\n", (unsigned long) nowtime-sb.st_mtime);
+            }
         }
+        if (ok) {
+            fp = fopen("/tmp/jaass", "r");
+            if (fp) {
+                fscanf(fp, "%s %s %s %s %s %s %s", del1, del2, del3, del4, del5, externalip, del6);
+                char *tmp;
+                tmp = strchr(externalip, '<');
+                *tmp = '\0';
+                printf("External ip: %s\n", externalip);
+            }   
+            addr_list = (struct in_addr **) hstnm->h_addr_list;
+            domainip = inet_ntoa(*addr_list[0]);
+            printf("Name: %s, %s\n", hstnm->h_name, domainip);
+            if (strcmp(externalip, domainip)==0) {
+                printf ("Valid!\n");
+                result = 1;
+            } else {
+                printf ("FAILED, set icon red\n");
+            }
+        }
+    } else {
+        printf("Failed to get ip address for : %s\n", domain->domain);
+    }
+    return result;
+}
+
+/* 
+ * Handle decal button presses
+ */ 
+static void buttonPress (GkrellmDecalbutton *button, GDomain *domain)
+{
+    if (updateStatus(button, domain)) {
+        gkrellm_set_decal_button_index(button, D_MISC_LED1);
+    } else {
+        gkrellm_set_decal_button_index(button, D_MISC_LED0);                
     }    
 }
 
@@ -747,14 +789,17 @@ static void create_plugin (GtkWidget *vbox, gint first_create)
   for (i = 0, list = domainList; list; i += 1, list = list->next)
   {
     domain = (GDomain *) list->data;
-    domain->decal = gkrellm_create_decal_text (domain->panel,
-                            domain->domain, ts_alt, style, -1, -1, -1);
                             
     domain->led_decal = gkrellm_create_decal_pixmap(domain->panel,
         gkrellm_decal_misc_pixmap(), gkrellm_decal_misc_mask(),
         N_MISC_DECALS, style, -1, -1);
     domain->led_decal->x =
         gkrellm_chart_width() - domain->led_decal->w - m->right;
+        
+    domain->decal = gkrellm_create_decal_text (domain->panel,
+                            domain->domain, ts_alt, style, -1, -1, 
+                            gkrellm_chart_width() - domain->led_decal->w - m->right);
+        
   /*
    * Configure the panel to created decal, and create it.
    */
