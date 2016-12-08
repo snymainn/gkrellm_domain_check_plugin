@@ -48,6 +48,10 @@
 
 #define STYLE_NAME "GKrellMDomainCheck"
 
+
+extern GkrellmTicks     GK;
+
+
 static gchar *GKrellMDomainCheckInfo[] =
 {
   "<b>Usage\n\n",
@@ -78,6 +82,7 @@ typedef struct
   GkrellmPanel *panel; 
   GkrellmDecal *decal;
   GkrellmDecal *led_decal;
+  GkrellmDecalbutton *button;
 } GDomain;
 
 /*
@@ -86,6 +91,7 @@ typedef struct
 static GList *domainList;
 
 static gboolean listModified;
+static gboolean force_update;
 
 static gint style_id;
 
@@ -105,7 +111,7 @@ static GtkWidget *domainCList;
  */
 static gint selectedRow;
 
-int updateStatus(GkrellmDecalbutton *button, GDomain *domain)
+int update_status(GDomain *domain)
 {
     struct hostent *hstnm;
     struct in_addr **addr_list;
@@ -119,25 +125,18 @@ int updateStatus(GkrellmDecalbutton *button, GDomain *domain)
     int ok = 1;
     int result = 0;
 
-    //TODO: Check domains  
-    printf("ButtonPress\n");
     hstnm = gethostbyname(domain->domain);
     if (hstnm) {
-        if (stat("/tmp/jaass", &sb) == -1) {
-            ok = 0;
+        if ((stat("/tmp/jaass", &sb) != -1) && ((nowtime-sb.st_mtime) < (60*60*2))) {
+            printf("Jaass newer than two hours : %lu\n", (unsigned long) nowtime-sb.st_mtime);
         } else {
-            printf("Jaass time %lld %ld \n", (long long)sb.st_mtime, (unsigned long) nowtime);
-            //If file newer than one hour, it is no point checkin again
-            if ((nowtime-sb.st_mtime) > (60*60)) {
-                i = system("wget http://checkip.dyndns.org/ -O /tmp/jaass");
-                if (i!=0) {
-                    printf("Failed to run command wget http://checkip.dyndns.org/ -O /tmp/jaass");
-                    ok = 0;
-                }
-            } else {
-                printf("Jaass newer than one hour : %lu\n", (unsigned long) nowtime-sb.st_mtime);
+            printf("Failed to fstat from /tmp/jaass or it is older than one hour, try to create new\n");
+            i = system("wget http://checkip.dyndns.org/ -O /tmp/jaass");
+            if (i!=0) {
+                printf("Failed to run command wget http://checkip.dyndns.org/ -O /tmp/jaass");
+                ok = 0;
             }
-        }
+        } 
         if (ok) {
             fp = fopen("/tmp/jaass", "r");
             if (fp) {
@@ -156,6 +155,8 @@ int updateStatus(GkrellmDecalbutton *button, GDomain *domain)
             } else {
                 printf ("FAILED, set icon red\n");
             }
+        } else {
+            printf("Failed to get external ip address\n");
         }
     } else {
         printf("Failed to get ip address for : %s\n", domain->domain);
@@ -168,7 +169,8 @@ int updateStatus(GkrellmDecalbutton *button, GDomain *domain)
  */ 
 static void buttonPress (GkrellmDecalbutton *button, GDomain *domain)
 {
-    if (updateStatus(button, domain)) {
+    printf("ButtonPress\n");
+    if (update_status(domain)) {
         gkrellm_set_decal_button_index(button, D_MISC_LED1);
     } else {
         gkrellm_set_decal_button_index(button, D_MISC_LED0);                
@@ -224,14 +226,25 @@ static void setVisibility ()
   
 static void update_plugin ()
 {
-  GDomain *domain;
-  GList     *list;
+    GDomain *domain;
+    GList     *list;
 
-  for (list = domainList; list; list = list->next)
-  {
-    domain = (GDomain *) list->data;
-    gkrellm_draw_panel_layers (domain->panel);
-  }  
+    if (GK.hour_tick || force_update) {   
+        printf("update_plugin\n");
+        for (list = domainList; list; list = list->next)
+        {
+            domain = (GDomain *) list->data;
+            if (update_status(domain)) {
+                printf("Sett knappen grønn\n");
+                gkrellm_set_decal_button_index(domain->button, D_MISC_LED1);                
+            } else {
+                printf("Sett knappen blå\n");
+                gkrellm_set_decal_button_index(domain->button, D_MISC_LED0);                
+            }
+            gkrellm_draw_panel_layers (domain->panel);
+        } 
+        force_update = FALSE;
+    } 
 }
 
 /* 
@@ -243,7 +256,7 @@ static void save_plugin_config (FILE *f)
   GList     *list;
   
   for (list = domainList; list; list = list->next)
-  {
+  { 
     domain = (GDomain *) list->data;
 
     printf ("%s enabled=%d domain=%s\n", 
@@ -333,14 +346,16 @@ static void apply_plugin_config ()
     {
       domain = (GDomain *) list->data;
       domain->panel = gkrellm_panel_new0();
-      domain->decal = gkrellm_create_decal_text (domain->panel,
-                            domain->domain, ts_alt, style, -1, -1, -1);
+
                             
       domain->led_decal = gkrellm_create_decal_pixmap(domain->panel,
 			gkrellm_decal_misc_pixmap(), gkrellm_decal_misc_mask(),
 			N_MISC_DECALS, style, -1, -1);
 	  domain->led_decal->x =
 				gkrellm_chart_width() - domain->led_decal->w - m->right;
+      domain->decal = gkrellm_create_decal_text (domain->panel,
+                domain->domain, ts_alt, style, -1, -1, 
+                gkrellm_chart_width() - domain->led_decal->w - m->right);
                             
       /*
        * Configure the panel to the created decal, and create it.
@@ -355,8 +370,8 @@ static void apply_plugin_config ()
                                domain->domain, 1);
 
 
-	  gkrellm_make_decal_button(domain->panel, domain->led_decal,
-			buttonPress, domain, D_MISC_LED1, -1);
+	  domain->button = gkrellm_make_decal_button(domain->panel, domain->led_decal,
+			buttonPress, domain, D_MISC_LED0, -1);
                                  
    
       /*
@@ -374,6 +389,7 @@ static void apply_plugin_config ()
      * Reset the modification state.
      */
     listModified = FALSE;
+    force_update = TRUE;
   }  
 } 
 
@@ -808,13 +824,13 @@ static void create_plugin (GtkWidget *vbox, gint first_create)
     
   /* 
    * After the panel is created, the decal can be converted into a button.
-   * First draw the initial text into the text decal button and then
+   * First draw the initial text into the teupdate_pluginxt decal button and then
    * put the text decal into a meter button.  
    */
     gkrellm_draw_decal_text (domain->panel, domain->decal, 
                               domain->domain,1);
-    gkrellm_make_decal_button(domain->panel, domain->led_decal,
-			buttonPress, domain, D_MISC_LED1, -1);                              
+    domain->button = gkrellm_make_decal_button(domain->panel, domain->led_decal,
+			buttonPress, domain, D_MISC_LED0, -1);                              
                               
   }                                            
 
@@ -838,6 +854,7 @@ static void create_plugin (GtkWidget *vbox, gint first_create)
      * according to the config item read in.
      */ 
     setVisibility ();
+    force_update = TRUE;
   }
 }
 
@@ -878,7 +895,7 @@ GkrellmMonitor* gkrellm_init_plugin ()
    */
   selectedRow = -1;
   listModified = FALSE;
-
+  
   style_id = gkrellm_add_meter_style (&plugin_mon, STYLE_NAME);
   monitor = &plugin_mon;
   return &plugin_mon;
