@@ -21,6 +21,9 @@
  *  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  *
  *  Requires GKrellM 2 or better
+ *
+ *  Output of debug requires that plugin is called with:
+ *  gkrellm -l <logfilename> -d 0x20000 &
  */
 
 #include <gkrellm2/gkrellm.h>
@@ -124,42 +127,45 @@ int update_status(GDomain *domain)
     unsigned long nowtime = time(NULL);
     int ok = 1;
     int result = 0;
+    char filename[]="/tmp/domaincheck_temporary_ip_file";
+    char command[256];
 
     hstnm = gethostbyname(domain->domain);
     if (hstnm) {
-        if ((stat("/tmp/jaass", &sb) != -1) && ((nowtime-sb.st_mtime) < (60*60*2))) {
-            printf("Jaass newer than two hours : %lu\n", (unsigned long) nowtime-sb.st_mtime);
+        if ((stat(filename, &sb) != -1) && ((nowtime-sb.st_mtime) < (60*60*2))) {
+            g_debug("%s newer than two hours : %lu sec\n", filename, (unsigned long) nowtime-sb.st_mtime);
         } else {
-            printf("Failed to fstat from /tmp/jaass or it is older than one hour, try to create new\n");
-            i = system("wget http://checkip.dyndns.org/ -O /tmp/jaass");
+            g_debug("Failed to fstat from %s or it is older than one hour, try to create new\n", filename);
+            sprintf(command, "wget http://checkip.dyndns.org/ -O %s", filename);
+            i = system(command);
             if (i!=0) {
-                printf("Failed to run command wget http://checkip.dyndns.org/ -O /tmp/jaass");
+                g_debug("Failed to run command : %s\n", command);
                 ok = 0;
             }
         } 
         if (ok) {
-            fp = fopen("/tmp/jaass", "r");
+            fp = fopen(filename, "r");
             if (fp) {
                 fscanf(fp, "%s %s %s %s %s %s %s", del1, del2, del3, del4, del5, externalip, del6);
                 char *tmp;
                 tmp = strchr(externalip, '<');
                 *tmp = '\0';
-                printf("External ip: %s\n", externalip);
+                g_debug("External ip: %s\n", externalip);
             }   
             addr_list = (struct in_addr **) hstnm->h_addr_list;
             domainip = inet_ntoa(*addr_list[0]);
-            printf("Name: %s, %s\n", hstnm->h_name, domainip);
+            g_debug("Name: %s, %s\n", hstnm->h_name, domainip);
             if (strcmp(externalip, domainip)==0) {
-                printf ("Valid!\n");
+                g_debug ("Valid!\n");
                 result = 1;
             } else {
-                printf ("FAILED, set icon red\n");
+                g_debug ("FAILED, set icon blue\n");
             }
         } else {
-            printf("Failed to get external ip address\n");
+            g_debug("Failed to get external ip address\n");
         }
     } else {
-        printf("Failed to get ip address for : %s\n", domain->domain);
+        g_debug("Failed to get ip address for : %s\n", domain->domain);
     }
     return result;
 }
@@ -169,11 +175,13 @@ int update_status(GDomain *domain)
  */ 
 static void buttonPress (GkrellmDecalbutton *button, GDomain *domain)
 {
-    printf("ButtonPress\n");
+    g_debug("Button pressed\n");
     if (update_status(domain)) {
         gkrellm_set_decal_button_index(button, D_MISC_LED1);
+        g_debug("Make the led green\n");
     } else {
         gkrellm_set_decal_button_index(button, D_MISC_LED0);                
+        g_debug("Make the led blue\n");
     }    
 }
 
@@ -230,15 +238,15 @@ static void update_plugin ()
     GList     *list;
 
     if (GK.hour_tick || force_update) {   
-        printf("update_plugin\n");
+        g_debug("Update_plugin function\n");
         for (list = domainList; list; list = list->next)
         {
             domain = (GDomain *) list->data;
             if (update_status(domain)) {
-                printf("Sett knappen grønn\n");
+                g_debug("Make the led green\n");
                 gkrellm_set_decal_button_index(domain->button, D_MISC_LED1);                
             } else {
-                printf("Sett knappen blå\n");
+                g_debug("Make the led blue\n");
                 gkrellm_set_decal_button_index(domain->button, D_MISC_LED0);                
             }
             gkrellm_draw_panel_layers (domain->panel);
@@ -259,7 +267,7 @@ static void save_plugin_config (FILE *f)
   { 
     domain = (GDomain *) list->data;
 
-    printf ("%s enabled=%d domain=%s\n", 
+    g_debug ("%s enabled=%d domain=%s\n", 
              PLUGIN_CONFIG_KEYWORD, domain->enabled, domain->domain);
     fprintf (f, "%s enabled=%d domain=%s\n", 
              PLUGIN_CONFIG_KEYWORD, domain->enabled, domain->domain);
@@ -395,26 +403,26 @@ static void apply_plugin_config ()
 
 static void load_plugin_config (gchar *arg)
 {
-  gchar     domain_string[255];
-  gchar     enabled[2];
-  gint      n;
-  GDomain *domain;
-  GList     *list;
+    gchar     domain_string[255];
+    gchar     enabled[2];
+    gint      n;
+    GDomain *domain;
+    GList     *list;
 
-  n = sscanf (arg, "enabled=%s domain=%[^\n]", enabled, domain_string);
-  
-  if (n == 2)
-  {
-    domain = g_new0 (GDomain, 1);
-    domain->domain = g_strdup (domain_string);
-    domain->enabled = atoi (enabled);
-    domainList = g_list_append (domainList, domain);
-  }
+    n = sscanf (arg, "enabled=%s domain=%[^\n]", enabled, domain_string);
 
-  for (list = domainList; list; list = list->next)
-  {
-    domain = (GDomain *) list->data;
-  }  
+    if (n == 2)
+    {
+        domain = g_new0 (GDomain, 1);
+        domain->domain = g_strdup (domain_string);
+        domain->enabled = atoi (enabled);
+        domainList = g_list_append (domainList, domain);
+    }
+    //Is this just to link up the list?
+    for (list = domainList; list; list = list->next)
+    {
+        domain = (GDomain *) list->data;
+    }  
 }
 
 static void cbMoveUp (GtkWidget *widget, gpointer drawer)
@@ -502,7 +510,7 @@ static void cbAdd (GtkWidget *widget, gpointer data)
                (GTK_TOGGLE_BUTTON (toggleButton)) == TRUE ? "1" : "0");
   buffer[1] = gkrellm_gtk_entry_get_text (&domainEntry);
   
-  printf("cbAdd: %s %s\n", buffer[0], buffer[1]);
+  g_debug("cbAdd: %s %s\n", buffer[0], buffer[1]);
    
   /*
    * If either of the Label or Command entries are empty, forget it.
