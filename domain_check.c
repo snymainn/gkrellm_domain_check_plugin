@@ -4,8 +4,8 @@
  *	I made this because my domain provider does not support dynamic ip adress update,
  *	and because my external ip changes so seldom that it is possible to manually update
  *	the account at my domain provider when the ip address change.
- * 	So this plugin monitors the sub domains has the correct address.
- *	I use a system command calling wget from checkip.dyndns.org to fetch a file
+ * 	So this plugin monitors the sub domains and check if they have the correct address.
+ *	I use system command calling wget from checkip.dyndns.org to fetch a file
  * 	with the external address. This file is written til /tmp/. 
  *	This makes the plugin only compatible with linux and installations that has wget
  *	installed. Sorry about that. 
@@ -129,32 +129,32 @@ static gint selectedRow;
 
 
 static void debug(const char *fmt, ...) {
-	#ifdef DEBUG_FLAG
-	int size = 0;
-	char *p = NULL;
-	va_list ap;
+    #ifdef DEBUG_FLAG
+    int size = 0;
+    char *p = NULL;
+    va_list ap;
 
-	/* Determine required size */
+    /* Determine required size */
 
-	va_start(ap, fmt);
-	size = vsnprintf(p, size, fmt, ap);
-	va_end(ap);
+    va_start(ap, fmt);
+    size = vsnprintf(p, size, fmt, ap);
+    va_end(ap);
 
-	if (size < 0)
-		return;
+    if (size < 0)
+	    return;
 
-	size++;             /* For '\0' */
-	p = malloc(size);
-	if (p == NULL)
-		return;
+    size++;             /* For '\0' */
+    p = malloc(size);
+    if (p == NULL)
+	    return;
 
-	va_start(ap, fmt);
-	size = vsnprintf(p, size, fmt, ap);
-	if (size < 0) {
-		free(p);
-		return;
-	}
-	va_end(ap);
+    va_start(ap, fmt);
+    size = vsnprintf(p, size, fmt, ap);
+    if (size < 0) {
+	    free(p);
+	    return;
+    }
+    va_end(ap);
     g_debug("DEBUG: %s", p);
     free(p);
     #endif
