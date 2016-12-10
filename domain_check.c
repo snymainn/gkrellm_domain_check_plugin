@@ -114,7 +114,17 @@ static GtkWidget *domainCList;
  */
 static gint selectedRow;
 
-int update_status(GDomain *domain)
+
+static void debug(const char *fmt, ...) {
+	#ifdef DEBUG_FLAG
+    va_list args;
+    va_start(args, fmt);
+    g_debug(fmt, args);
+   	va_end(args);
+    #endif
+}
+
+static int update_status(GDomain *domain)
 {
     struct hostent *hstnm;
     struct in_addr **addr_list;

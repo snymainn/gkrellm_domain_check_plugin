@@ -6,7 +6,7 @@ LIBS = $(GTK_LIB)
 LFLAGS = -shared
 CFLAGS = -Wno-unused-but-set-variable
 
-CC = gcc $(CFLAGS) $(FLAGS)
+CC = gcc $(CFLAGS) $(FLAGS) $(DEBUG)
 
 OBJS = domain_check.o
 
@@ -15,16 +15,20 @@ domain_check.so: $(OBJS)
 
 clean:
 	rm -f *.o core *.so* *.bak *~
-
+	
 domain_check.o: domain_check.c
+
+debug:
+	$(MAKE) $(MAKEFILE) DEBUG="-DDEBUG_FLAG"
+
 
 install:
 	if [ -d $(HOME)/.gkrellm2/plugins/ ] ; then \
 		install -s -m 644 domain_check.so $(HOME)/.gkrellm2/plugins/ ; \
-	else \
-		install -D -s -m 644 domain_check.so $(HOME)/.gkrellm2/plugins/gkrellstock.so ; \
-        fi
+    fi
+
 
 uninstall:
 	rm -f $(HOME)/.gkrellm2/plugins/domain_check.so
+	
 
