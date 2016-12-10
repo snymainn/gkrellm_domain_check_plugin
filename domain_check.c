@@ -117,10 +117,33 @@ static gint selectedRow;
 
 static void debug(const char *fmt, ...) {
 	#ifdef DEBUG_FLAG
-    va_list args;
-    va_start(args, fmt);
-    g_debug(fmt, args);
-   	va_end(args);
+	int size = 0;
+	char *p = NULL;
+	va_list ap;
+
+	/* Determine required size */
+
+	va_start(ap, fmt);
+	size = vsnprintf(p, size, fmt, ap);
+	va_end(ap);
+
+	if (size < 0)
+		return;
+
+	size++;             /* For '\0' */
+	p = malloc(size);
+	if (p == NULL)
+		return;
+
+	va_start(ap, fmt);
+	size = vsnprintf(p, size, fmt, ap);
+	if (size < 0) {
+		free(p);
+		return;
+	}
+	va_end(ap);
+    g_debug("DEBUG: %s", p);
+    free(p);
     #endif
 }
 
@@ -137,45 +160,63 @@ static int update_status(GDomain *domain)
     unsigned long nowtime = time(NULL);
     int ok = 1;
     int result = 0;
-    char filename[]="/tmp/domaincheck_temporary_ip_file";
+    int found = 0;
+    char filename[] = "/tmp/domaincheck_temporary_ip_file";
     char command[256];
 
     hstnm = gethostbyname(domain->domain);
     if (hstnm) {
-        if ((stat(filename, &sb) != -1) && ((nowtime-sb.st_mtime) < (60*60*2))) {
-            g_debug("%s newer than two hours : %lu sec\n", filename, (unsigned long) nowtime-sb.st_mtime);
-        } else {
-            g_debug("Failed to fstat from %s or it is older than one hour, try to create new\n", filename);
-            sprintf(command, "wget http://checkip.dyndns.org/ -O %s", filename);
-            i = system(command);
-            if (i!=0) {
-                g_debug("Failed to run command : %s\n", command);
-                ok = 0;
-            }
-        } 
+    	int create_new_file = 0;
+        if (stat(filename, &sb) != -1) {
+        	debug("nowtime: %lu -- filetime: %lu\n", nowtime, sb.st_mtime);
+        	if ((nowtime-sb.st_mtime) < (60*60*2)) {
+	            debug("%s is newer than two hours : sec %lu\n", filename, nowtime-sb.st_mtime);
+            } else { create_new_file = 1; }
+        } else { create_new_file = 1; }
+        if (create_new_file) {
+        	debug("Failed to stat %s or file is older than two hours\n", filename);
+	        sprintf(command, "wget http://checkip.dyndns.org/ -O %s", filename);
+	        i = system(command);
+	        if (i!=0) {
+	            debug("Failed to run command : %s\n", command);
+	            ok = 0;
+	        }
+		} 
         if (ok) {
             fp = fopen(filename, "r");
             if (fp) {
-                fscanf(fp, "%s %s %s %s %s %s %s", del1, del2, del3, del4, del5, externalip, del6);
-                char *tmp;
-                tmp = strchr(externalip, '<');
-                *tmp = '\0';
-                g_debug("External ip: %s\n", externalip);
-            }   
-            addr_list = (struct in_addr **) hstnm->h_addr_list;
-            domainip = inet_ntoa(*addr_list[0]);
-            g_debug("Name: %s, %s\n", hstnm->h_name, domainip);
-            if (strcmp(externalip, domainip)==0) {
-                g_debug ("Valid!\n");
-                result = 1;
+                found = fscanf(fp, "%s %s %s %s %s %s %s", del1, del2, del3, del4, del5, externalip, del6);
+                if (found == 6) {
+                
+                	debug("Found at least six items and external ip : %s\n", externalip);
+		            char *tmp;
+		            tmp = strchr(externalip, '<');
+		            *tmp = '\0';
+		            debug("External ip: %s\n", externalip);
+		            fclose(fp);
+		            addr_list = (struct in_addr **) hstnm->h_addr_list;
+			        domainip = inet_ntoa(*addr_list[0]);
+			        debug("Name: %s, %s\n", hstnm->h_name, domainip);
+			        if (strcmp(externalip, domainip)==0) {
+			            debug ("Valid!\n");
+			            result = 1;
+			        } else {
+			            debug ("FAILED, set icon blue\n");
+			        }
+		        } else {
+		        	debug("%s if empty, delete it and try again\n", filename);
+		        	if (remove(filename) == -1) {
+		        		debug("Failed to delete %s\n", filename);
+	        		}
+		        }
             } else {
-                g_debug ("FAILED, set icon blue\n");
-            }
+            	debug("Failed to open %s\n", filename);   
+        	}
         } else {
-            g_debug("Failed to get external ip address\n");
+            debug("Failed to get external ip address\n");
         }
     } else {
-        g_debug("Failed to get ip address for : %s\n", domain->domain);
+        debug("Failed to get ip address for : %s\n", domain->domain);
     }
     return result;
 }
@@ -185,13 +226,13 @@ static int update_status(GDomain *domain)
  */ 
 static void buttonPress (GkrellmDecalbutton *button, GDomain *domain)
 {
-    g_debug("Button pressed\n");
+    debug("Button pressed\n");
     if (update_status(domain)) {
         gkrellm_set_decal_button_index(button, D_MISC_LED1);
-        g_debug("Make the led green\n");
+        debug("Make the led green\n");
     } else {
         gkrellm_set_decal_button_index(button, D_MISC_LED0);                
-        g_debug("Make the led blue\n");
+        debug("Make the led blue\n");
     }    
 }
 
@@ -248,15 +289,15 @@ static void update_plugin ()
     GList     *list;
 
     if (GK.hour_tick || force_update) {   
-        g_debug("Update_plugin function\n");
+        debug("Update_plugin function\n");
         for (list = domainList; list; list = list->next)
         {
             domain = (GDomain *) list->data;
             if (update_status(domain)) {
-                g_debug("Make the led green\n");
+                debug("Make the led green\n");
                 gkrellm_set_decal_button_index(domain->button, D_MISC_LED1);                
             } else {
-                g_debug("Make the led blue\n");
+                debug("Make the led blue\n");
                 gkrellm_set_decal_button_index(domain->button, D_MISC_LED0);                
             }
             gkrellm_draw_panel_layers (domain->panel);
@@ -277,7 +318,7 @@ static void save_plugin_config (FILE *f)
   { 
     domain = (GDomain *) list->data;
 
-    g_debug ("%s enabled=%d domain=%s\n", 
+    debug ("%s enabled=%d domain=%s\n", 
              PLUGIN_CONFIG_KEYWORD, domain->enabled, domain->domain);
     fprintf (f, "%s enabled=%d domain=%s\n", 
              PLUGIN_CONFIG_KEYWORD, domain->enabled, domain->domain);
@@ -520,7 +561,7 @@ static void cbAdd (GtkWidget *widget, gpointer data)
                (GTK_TOGGLE_BUTTON (toggleButton)) == TRUE ? "1" : "0");
   buffer[1] = gkrellm_gtk_entry_get_text (&domainEntry);
   
-  g_debug("cbAdd: %s %s\n", buffer[0], buffer[1]);
+  debug("cbAdd: %s %s\n", buffer[0], buffer[1]);
    
   /*
    * If either of the Label or Command entries are empty, forget it.
