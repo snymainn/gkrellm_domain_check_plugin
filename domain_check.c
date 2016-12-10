@@ -1,10 +1,24 @@
 /*  
- * 
+ *	Domain_check: 
+ *	Gkrellm2 plugin to check if your sub domains points to your external ip address.
+ *	I made this because my domain provider does not support dynamic ip adress update,
+ *	and because my external ip changes so seldom that it is possible to manually update
+ *	the account at my domain provider when the ip address change.
+ * 	So this plugin monitors the sub domains has the correct address.
+ *	I use a system command calling wget from checkip.dyndns.org to fetch a file
+ * 	with the external address. This file is written til /tmp/. 
+ *	This makes the plugin only compatible with linux and installations that has wget
+ *	installed. Sorry about that. 
+ *	Anyway, it is mostly a tool for my own use and used to refresh some ansi c knowledge.
+ *
+ *  Output of debug requires that plugin is called with:
+ *  gkrellm -l <logfilename> -d 0x20000 &
+ *  and that the so is built with "make debug; make install"
+ *
  *  Copyright (C) 2016 Tommy Skagemo-Andreassen
  *
- *  Heaily based on gkrellmlaunch by:
+ *  It is heaily based on gkrellmlaunch by:
  *  Author: Lee Webb leewebb@users.sourceforge.net
- *  Latest versions: http://gkrellmlaunch.sourceforge.net
  *
  *  This program is free software which I release under the GNU General Public
  *  License. You may redistribute and/or modify this program under the terms
@@ -22,8 +36,7 @@
  *
  *  Requires GKrellM 2 or better
  *
- *  Output of debug requires that plugin is called with:
- *  gkrellm -l <logfilename> -d 0x20000 &
+ *
  */
 
 #include <gkrellm2/gkrellm.h>
@@ -208,6 +221,7 @@ static int update_status(GDomain *domain)
 		        	if (remove(filename) == -1) {
 		        		debug("Failed to delete %s\n", filename);
 	        		}
+	        		result = 2;
 		        }
             } else {
             	debug("Failed to open %s\n", filename);   
@@ -226,14 +240,20 @@ static int update_status(GDomain *domain)
  */ 
 static void buttonPress (GkrellmDecalbutton *button, GDomain *domain)
 {
+	int result = 0;
+	
     debug("Button pressed\n");
-    if (update_status(domain)) {
+    result = update_status(domain);
+    if (result == 1) {
         gkrellm_set_decal_button_index(button, D_MISC_LED1);
         debug("Make the led green\n");
     } else {
         gkrellm_set_decal_button_index(button, D_MISC_LED0);                
         debug("Make the led blue\n");
     }    
+    if (result == 2) {
+    	force_update = TRUE; 
+	}
 }
 
 static gint panel_expose_event (GtkWidget *widget, GdkEventExpose *ev)
@@ -287,13 +307,15 @@ static void update_plugin ()
 {
     GDomain *domain;
     GList     *list;
+    int result = 0;
 
     if (GK.hour_tick || force_update) {   
         debug("Update_plugin function\n");
         for (list = domainList; list; list = list->next)
         {
             domain = (GDomain *) list->data;
-            if (update_status(domain)) {
+            result = update_status(domain);
+            if (result == 1) {
                 debug("Make the led green\n");
                 gkrellm_set_decal_button_index(domain->button, D_MISC_LED1);                
             } else {
@@ -302,7 +324,11 @@ static void update_plugin ()
             }
             gkrellm_draw_panel_layers (domain->panel);
         } 
-        force_update = FALSE;
+        if (result == 2) { 
+        	force_update = TRUE; 
+        } else {
+        	force_update = FALSE; 
+    	}
     } 
 }
 
