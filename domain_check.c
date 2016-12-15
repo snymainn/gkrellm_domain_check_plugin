@@ -5,11 +5,9 @@
  *	and because my external ip changes so seldom that it is possible to manually update
  *	the account at my domain provider when the ip address change.
  * 	So this plugin monitors the sub domains and check if they have the correct address.
- *	I use system command calling wget from checkip.dyndns.org to fetch a file
- * 	with the external address. This file is written til /tmp/. 
- *	This makes the plugin only compatible with linux and installations that has wget
- *	installed. Sorry about that. 
- *	Anyway, it is mostly a tool for my own use and used to refresh some ansi c knowledge.
+ *  
+ *  I use the "host" command suggested by this site to fetch my external ip address:
+ *  http://www.dokws.com/questions/question/find-internal-external-ip-address-linux-command-line/
  *
  *  Output of debug requires that plugin is called with:
  *  gkrellm -l <logfilename> -d 0x20000 &
@@ -44,7 +42,6 @@
 #include <arpa/inet.h>
 #include <stdlib.h>
 #include <sys/types.h>
-#include <sys/stat.h>
 #include <time.h>
 #include <stdio.h>
 
@@ -164,68 +161,45 @@ static int update_status(GDomain *domain)
 {
     struct hostent *hstnm;
     struct in_addr **addr_list;
-    int i;
     FILE *fp;
-    char del1[256], del2[256], del3[256], del4[256], del5[256], del6[256];
     char externalip[256];
+    char *fgets_result;
     char *domainip;
-    struct stat sb;
-    unsigned long nowtime = time(NULL);
     int ok = 1;
     int result = 0;
-    int found = 0;
-    char filename[] = "/tmp/domaincheck_temporary_ip_file";
     char command[256];
 
     hstnm = gethostbyname(domain->domain);
     if (hstnm) {
-    	int create_new_file = 0;
-        if (stat(filename, &sb) != -1) {
-        	debug("nowtime: %lu -- filetime: %lu\n", nowtime, sb.st_mtime);
-        	if ((nowtime-sb.st_mtime) < (60*60*2)) {
-	            debug("%s is newer than two hours : sec %lu\n", filename, nowtime-sb.st_mtime);
-            } else { create_new_file = 1; }
-        } else { create_new_file = 1; }
-        if (create_new_file) {
-        	debug("Failed to stat %s or file is older than two hours\n", filename);
-	        sprintf(command, "wget http://checkip.dyndns.org/ -O %s", filename);
-	        i = system(command);
-	        if (i!=0) {
-	            debug("Failed to run command : %s\n", command);
-	            ok = 0;
-	        }
-		} 
-        if (ok) {
-            fp = fopen(filename, "r");
-            if (fp) {
-                found = fscanf(fp, "%s %s %s %s %s %s %s", del1, del2, del3, del4, del5, externalip, del6);
-                if (found == 6) {
-                
-                	debug("Found at least six items and external ip : %s\n", externalip);
-		            char *tmp;
-		            tmp = strchr(externalip, '<');
-		            *tmp = '\0';
-		            debug("External ip: %s\n", externalip);
-		            fclose(fp);
-		            addr_list = (struct in_addr **) hstnm->h_addr_list;
-			        domainip = inet_ntoa(*addr_list[0]);
-			        debug("Name: %s, %s\n", hstnm->h_name, domainip);
-			        if (strcmp(externalip, domainip)==0) {
-			            debug ("Valid!\n");
-			            result = 1;
-			        } else {
-			            debug ("FAILED, set icon blue\n");
-			        }
-		        } else {
-		        	debug("%s if empty, delete it and try again\n", filename);
-		        	if (remove(filename) == -1) {
-		        		debug("Failed to delete %s\n", filename);
-	        		}
-	        		result = 2;
-		        }
+        sprintf(command, "host myip.opendns.com resolver1.opendns.com | grep -i myip | awk '{print $4}' | head -1");
+        fp = popen(command, "r");
+        if (fp == NULL) {
+            debug("Failed to run command : %s\n", command);
+            ok = 0;
+        } else {
+            fgets_result = fgets(externalip, sizeof(externalip), fp);
+            debug("Read : *%s*\n", externalip);
+            if (strlen(externalip)<7) {
+                ok = 0;
             } else {
-            	debug("Failed to open %s\n", filename);   
-        	}
+                char *tmp_pt;
+                if ((tmp_pt = strchr(externalip,'\n'))) {
+                    *tmp_pt = '\0';
+                    debug("Newline removed : *%s*\n", externalip);
+                }
+            }
+           
+        }
+        if (ok) {
+            addr_list = (struct in_addr **) hstnm->h_addr_list;
+	        domainip = inet_ntoa(*addr_list[0]);
+	        debug("Name: %s, %s\n", hstnm->h_name, domainip);
+	        if (strcmp(externalip, domainip)==0) {
+	            debug ("Valid!\n");
+	            result = 1;
+	        } else {
+	            debug ("FAILED, set icon blue\n");
+	        }
         } else {
             debug("Failed to get external ip address\n");
         }

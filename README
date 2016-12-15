@@ -6,10 +6,8 @@ and because my external ip changes so seldom that it is possible to manually upd
 the account at my domain provider when the ip address change.
 
 So this plugin monitors the sub domains and check if they have the correct address.
-I use system command calling wget from checkip.dyndns.org to fetch a file
-with the external address. This file is written to /tmp/. 
-This makes the plugin only compatible with linux and installations that has wget
-installed. Sorry about that. 
-Anyway, it is mostly a tool for my own use and used to refresh some ansi c knowledge.
+
+I use linux host command to fetch external ip address as suggested by this web page:
+http://www.dokws.com/questions/question/find-internal-external-ip-address-linux-command-line/
 
 
